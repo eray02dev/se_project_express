@@ -1,111 +1,121 @@
+// controllers/clothingItems.js
 const ClothingItem = require("../models/clothingItem");
-const {
-  BAD_REQUEST,
-  NOT_FOUND,
-  INTERNAL_SERVER_ERROR,
-} = require("../utils/errors");
+const { BAD_REQUEST, NOT_FOUND, FORBIDDEN } = require("../utils/errors");
 
-// GET /items — returns all clothing items
-exports.getItems = (req, res) => {
-  ClothingItem.find({})
-    // .populate("owner likes") // istersen aç, owner bilgisiyle dönersin
-    .then((items) => res.send(items)) // 200 default
-    .catch((err) => {
-      console.error(err);
-      return res
-        .status(INTERNAL_SERVER_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
+// küçük yardımcı: hataya statusCode ekleyip next'e gönder
+const bubble = (err, code, message) => {
+  err.statusCode = code; // eslint-disable-line no-param-reassign
+  if (message) err.message = message; // eslint-disable-line no-param-reassign
+  return err;
 };
 
-// POST /items — creates a new item
-// Body: { name, weather, imageUrl }  (owner artık req.user._id)
-exports.createItem = (req, res) => {
-  const { name, weather, imageUrl } = req.body;
-  const owner = req.user._id;
+// GET /items — public
+async function getItems(req, res, next) {
+  try {
+    const items = await ClothingItem.find({});
+    return res.send(items);
+  } catch (e) {
+    return next(e);
+  }
+}
 
-  ClothingItem.create({ name, weather, imageUrl, owner })
-    .then((item) => res.status(201).send(item))
-    .catch((err) => {
-      console.error(err);
-      if (err.name === "ValidationError") {
-        return res.status(BAD_REQUEST).send({ message: "Invalid item data" });
-      }
-      return res
-        .status(INTERNAL_SERVER_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
-};
+// POST /items — protected (owner = req.user._id)
+async function createItem(req, res, next) {
+  try {
+    const { name, weather, imageUrl } = req.body;
+    const owner = req.user._id;
 
-// DELETE /items/:itemId — deletes an item by _id
-exports.deleteItem = (req, res) => {
-  const { itemId } = req.params;
+    const item = await ClothingItem.create({ name, weather, imageUrl, owner });
+    return res.status(201).send(item);
+  } catch (e) {
+    if (e.name === "ValidationError") {
+      return next(bubble(e, BAD_REQUEST, "Invalid item data"));
+    }
+    return next(e);
+  }
+}
 
-  ClothingItem.findById(itemId)
-    .orFail() // kayıt yoksa DocumentNotFoundError fırlatır
-    .then((item) =>
-      item.deleteOne().then(() => res.send({ message: "Item deleted", item }))
-    )
-    .catch((err) => {
-      console.error(err);
-      if (err.name === "CastError") {
-        return res.status(BAD_REQUEST).send({ message: "Invalid item id" });
-      }
-      if (err.name === "DocumentNotFoundError") {
-        return res.status(NOT_FOUND).send({ message: "Item not found" });
-      }
-      return res
-        .status(INTERNAL_SERVER_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
-};
-exports.likeItem = (req, res) => {
-  const { itemId } = req.params;
-  const userId = req.user._id;
+// DELETE /items/:itemId — protected, only owner
+async function deleteItem(req, res, next) {
+  try {
+    const { itemId } = req.params;
+    const requesterId = req.user._id;
 
-  ClothingItem.findByIdAndUpdate(
-    itemId,
-    { $addToSet: { likes: userId } }, // varsa tekrar eklemez
-    { new: true }
-  )
-    .orFail() // kayıt yoksa DocumentNotFoundError
-    .then((item) => res.send(item)) // 200
-    .catch((err) => {
-      console.error(err);
-      if (err.name === "CastError") {
-        return res.status(BAD_REQUEST).send({ message: "Invalid item id" });
-      }
-      if (err.name === "DocumentNotFoundError") {
-        return res.status(NOT_FOUND).send({ message: "Item not found" });
-      }
-      return res
-        .status(INTERNAL_SERVER_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
-};
+    const item = await ClothingItem.findById(itemId).orFail();
+    if (!item.owner.equals(requesterId)) {
+      return next(
+        bubble(
+          new Error("Forbidden: you are not the owner of this item"),
+          FORBIDDEN
+        )
+      );
+    }
 
-// DELETE /items/:itemId/likes — unlike
-exports.unlikeItem = (req, res) => {
-  const { itemId } = req.params;
-  const userId = req.user._id;
+    await item.deleteOne();
+    return res.send({ message: "Item deleted", item });
+  } catch (e) {
+    if (e.name === "CastError") {
+      return next(bubble(e, BAD_REQUEST, "Invalid item id"));
+    }
+    if (e.name === "DocumentNotFoundError") {
+      return next(bubble(e, NOT_FOUND, "Item not found"));
+    }
+    return next(e);
+  }
+}
 
-  ClothingItem.findByIdAndUpdate(
-    itemId,
-    { $pull: { likes: userId } },
-    { new: true }
-  )
-    .orFail()
-    .then((item) => res.send(item)) // 200
-    .catch((err) => {
-      console.error(err);
-      if (err.name === "CastError") {
-        return res.status(BAD_REQUEST).send({ message: "Invalid item id" });
-      }
-      if (err.name === "DocumentNotFoundError") {
-        return res.status(NOT_FOUND).send({ message: "Item not found" });
-      }
-      return res
-        .status(INTERNAL_SERVER_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
+// PUT /items/:itemId/likes — protected
+async function likeItem(req, res, next) {
+  try {
+    const { itemId } = req.params;
+    const userId = req.user._id;
+
+    const item = await ClothingItem.findByIdAndUpdate(
+      itemId,
+      { $addToSet: { likes: userId } },
+      { new: true }
+    ).orFail();
+
+    return res.send(item);
+  } catch (e) {
+    if (e.name === "CastError") {
+      return next(bubble(e, BAD_REQUEST, "Invalid item id"));
+    }
+    if (e.name === "DocumentNotFoundError") {
+      return next(bubble(e, NOT_FOUND, "Item not found"));
+    }
+    return next(e);
+  }
+}
+
+// DELETE /items/:itemId/likes — protected
+async function unlikeItem(req, res, next) {
+  try {
+    const { itemId } = req.params;
+    const userId = req.user._id;
+
+    const item = await ClothingItem.findByIdAndUpdate(
+      itemId,
+      { $pull: { likes: userId } },
+      { new: true }
+    ).orFail();
+
+    return res.send(item);
+  } catch (e) {
+    if (e.name === "CastError") {
+      return next(bubble(e, BAD_REQUEST, "Invalid item id"));
+    }
+    if (e.name === "DocumentNotFoundError") {
+      return next(bubble(e, NOT_FOUND, "Item not found"));
+    }
+    return next(e);
+  }
+}
+
+module.exports = {
+  getItems,
+  createItem,
+  deleteItem,
+  likeItem,
+  unlikeItem,
 };
