@@ -1,7 +1,6 @@
 // routes/clothingItems.js
 const router = require("express").Router();
 const {
-  getItems,
   createItem,
   deleteItem,
   likeItem,
@@ -9,10 +8,9 @@ const {
 } = require("../controllers/clothingItems");
 const { validateCreateItem, validateItemId } = require("../utils/validators");
 
-// PUBLIC: GET /items (zaten index.js'te public olarak mount ediyorsun)
-router.get("/", getItems);
+// NOT: GET /  —> burada TANIMLI DEĞİL (public GET, routes/index.js'te)
 
-// PROTECTED: (index.js'te router.use('/items', auth, itemRouter))
+// PROTECTED: (index.js'te router.use('/items', auth, itemRouter) ile korunur)
 router.post("/", validateCreateItem, createItem);
 router.delete("/:itemId", validateItemId, deleteItem);
 router.put("/:itemId/likes", validateItemId, likeItem);
