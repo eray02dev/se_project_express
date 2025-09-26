@@ -1,7 +1,5 @@
 // controllers/users.js
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-
 const User = require("../models/user");
 const { JWT_SECRET } = require("../utils/config");
 const {
@@ -13,8 +11,6 @@ const {
 
 /**
  * POST /signup
- * Kullanıcı oluşturma (email + password hash)
- * - Aynı email varsa 409 döner (pre-check + 11000 fallback)
  */
 const createUser = async (req, res, next) => {
   try {
@@ -26,14 +22,14 @@ const createUser = async (req, res, next) => {
         .send({ message: "Email and password are required" });
     }
 
-    // Duplicate email pre-check (DB'de unique index olmasa bile 409 verir)
+    // duplicate email pre-check
     const exists = await User.exists({ email });
     if (exists) {
       return res.status(CONFLICT).send({ message: "Email already exists" });
     }
 
-    const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, avatar, email, password: hash });
+    // ❗ŞİFREYİ BURADA HASHLEME — model pre('save') halledecek
+    const user = await User.create({ name, avatar, email, password });
 
     return res.status(201).send({
       _id: user._id,
@@ -54,7 +50,6 @@ const createUser = async (req, res, next) => {
 
 /**
  * POST /signin
- * Login — custom static ile doğrula ve JWT üret
  */
 const login = (req, res, next) => {
   const { email, password } = req.body;
@@ -80,7 +75,7 @@ const login = (req, res, next) => {
 };
 
 /**
- * GET /users/me — token'dan kullanıcıyı getir
+ * GET /users/me
  */
 const getCurrentUser = (req, res, next) => {
   User.findById(req.user._id)
@@ -95,7 +90,7 @@ const getCurrentUser = (req, res, next) => {
 };
 
 /**
- * PATCH /users/me — adı ve avatarı güncelle
+ * PATCH /users/me
  */
 const updateMe = (req, res, next) => {
   const { name, avatar } = req.body;
