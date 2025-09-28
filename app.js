@@ -13,17 +13,17 @@ const { INTERNAL_SERVER_ERROR } = require("./utils/errors");
 const app = express();
 
 const {
-  PORT = 3000, // ✅ local default; Render PORT'u env'den verir
-  MONGODB_URI = "mongodb://127.0.0.1:27017/wtwr_db", // ✅ Atlas için env
-  FRONTEND_URL = "https://eray02dev.github.io", // ✅ canlı frontend (GitHub Pages)
-  FRONTEND_URL_2, // opsiyonel ikinci domain
+  PORT = 3001,
+  MONGO_URL = "mongodb://127.0.0.1:27017/wtwr_db",
+  FRONTEND_URL, // prod için .env'den ver (örn: https://wtwr.example.com)
+  FRONTEND_URL_2, // istersen ikinci bir domain daha
 } = process.env;
 
 // --- DB ---
 mongoose
-  .connect(MONGODB_URI)
-  .then(() => console.log("MongoDB connected")) // eslint-disable-line no-console
-  .catch((err) => console.error("MongoDB error:", err)); // eslint-disable-line no-console
+  .connect(MONGO_URL)
+  .then(() => console.warn("Connected to DB")) // eslint-disable-line no-console
+  .catch((err) => console.error("DB connection error:", err)); // eslint-disable-line no-console
 
 // --- Security & Parsers ---
 app.use(helmet());
@@ -39,19 +39,18 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin(origin, callback) {
-    // origin yoksa (Postman/healthcheck) izin ver
+    // Postman/insomnia gibi origin'siz istekleri de kabul et
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("CORS: Not allowed by policy"));
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // preflight
+// Preflight
+app.options("*", cors(corsOptions));
 
-// --- Rate limit ---
+// --- Rate limit (basic) ---
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -61,27 +60,23 @@ app.use(
   })
 );
 
-// --- Healthcheck ---
-app.get("/", (req, res) => res.send({ status: "ok", service: "wtwr-api" }));
-
 // --- Routes ---
 app.use("/", mainRouter);
 
 // --- Celebrate validation errors ---
 app.use(errors());
 
-// --- Global error handler ---
+// --- Global error handler (must be 4 args) ---
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  const status = err.statusCode || INTERNAL_SERVER_ERROR || 500;
+  const status = err.statusCode || INTERNAL_SERVER_ERROR;
   const message =
-    status === (INTERNAL_SERVER_ERROR || 500)
+    status === INTERNAL_SERVER_ERROR
       ? "An error has occurred on the server."
       : err.message;
   res.status(status).send({ message });
 });
 
-// --- Listen ---
 app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`); // eslint-disable-line no-console
+  console.warn(`Listening on port ${PORT}`); // eslint-disable-line no-console
 });
